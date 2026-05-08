@@ -1,0 +1,10 @@
+[
+    {
+        "imagem": "chihuahua_35.jpg",
+        "caminho": "dataset\\test\\chihuahua_35.jpg",
+        "especie_predita": "gato",
+        "raca_predita": "Ragdoll",
+        "confianca_especie": 0.5298541784286499,
+        "confianca_raca": 0.05466078594326973
+    }
+]

@@ -1,3 +1,8 @@
+"""
+PROJETO: CLASSIFICADOR HIERÁRQUICO 
+Dois modelos separados: um para espécie, outro para raça
+"""
+
 # ============================================
 # Versão do Python: 3.12 para ser compatível com TensorFlow 2.13
 # ============================================
@@ -13,11 +18,6 @@
 # IMPORTAÇÃO DAS BIBLIOTECAS
 # ============================================
 
-"""
-PROJETO: CLASSIFICADOR HIERÁRQUICO 
-Dois modelos separados: um para espécie, outro para raça
-"""
-
 import tensorflow as tf
 from tensorflow.keras.applications import ResNet50
 from tensorflow.keras.models import Model, load_model
@@ -32,6 +32,7 @@ import json
 from datetime import datetime
 import shutil
 import tempfile
+from sklearn.model_selection import train_test_split
 
 # Configurações
 DATASET_PATH = "dataset"
@@ -39,8 +40,8 @@ TRAIN_PATH = os.path.join(DATASET_PATH, "train")
 TEST_PATH = os.path.join(DATASET_PATH, "test")
 
 IMG_SIZE = 224
-BATCH_SIZE = 32
-NUM_EPOCHS = 15
+BATCH_SIZE = 16
+NUM_EPOCHS = 12
 LEARNING_RATE = 0.001
 
 MODEL_ESPECIE_PATH = "modelo_especie.h5"
@@ -56,11 +57,14 @@ def criar_modelo(num_classes, nome_modelo):
     print(f"\nCriando modelo para {nome_modelo} com {num_classes} classes...")
     
     base_model = ResNet50(weights='imagenet', include_top=False, input_shape=(IMG_SIZE, IMG_SIZE, 3))
-    base_model.trainable = False
+    # Descongelar as últimas camadas da base para fine-tuning
+    base_model.trainable = True
+    for layer in base_model.layers[:-30]:  # Congelar tudo, exceto as últimas 30 camadas
+        layer.trainable = False
     
     x = GlobalAveragePooling2D()(base_model.output)
     x = Dense(512, activation='relu')(x)
-    x = Dropout(0.5)(x)
+    x = Dropout(0.4)(x)
     x = BatchNormalization()(x)
     x = Dense(256, activation='relu')(x)
     x = Dropout(0.3)(x)
@@ -80,8 +84,8 @@ def criar_modelo(num_classes, nome_modelo):
 # FUNÇÃO 2: PREPARAR DADOS PARA ESPÉCIE
 # ============================================
 
-def preparar_dados_especie(train_path, test_path):
-    """Prepara dados para classificação de espécie (cachorro vs gato)"""
+def preparar_dados_especie(train_path):
+    """Prepara dados para classificação de espécie  """
     
     print("\n" + "="*60)
     print("PREPARANDO DADOS PARA ESPÉCIE")
@@ -95,24 +99,25 @@ def preparar_dados_especie(train_path, test_path):
         shear_range=0.2,
         zoom_range=0.2,
         horizontal_flip=True,
-        fill_mode='nearest'
+        fill_mode='nearest',
+        validation_split=0.2  # 20% para validação
     )
-    
-    test_datagen = ImageDataGenerator(rescale=1./255)
     
     train_generator = train_datagen.flow_from_directory(
         train_path,
         target_size=(IMG_SIZE, IMG_SIZE),
         batch_size=BATCH_SIZE,
         class_mode='categorical',
+        subset='training',
         shuffle=True
     )
     
-    test_generator = test_datagen.flow_from_directory(
-        test_path,
+    val_generator = train_datagen.flow_from_directory(
+        train_path,
         target_size=(IMG_SIZE, IMG_SIZE),
         batch_size=BATCH_SIZE,
         class_mode='categorical',
+        subset='validation',
         shuffle=False
     )
     
@@ -120,9 +125,9 @@ def preparar_dados_especie(train_path, test_path):
     
     print(f"✓ Espécies: {especies}")
     print(f"✓ Treino: {train_generator.samples} imagens")
-    print(f"✓ Teste: {test_generator.samples} imagens")
+    print(f"✓ Validação: {val_generator.samples} imagens")
     
-    return train_generator, test_generator, especies
+    return train_generator, val_generator, especies
 
 # ============================================
 # FUNÇÃO 3: PREPARAR DADOS PARA RAÇA
@@ -170,8 +175,6 @@ def preparar_dados_raca(train_path):
                     shutil.copy2(src, dst)
     
     # Dividir em treino/validação
-    from sklearn.model_selection import train_test_split
-    
     imagens = []
     for raca in racas:
         raca_path = os.path.join(temp_path, raca)
@@ -200,10 +203,21 @@ def preparar_dados_raca(train_path):
         os.makedirs(raca_val_path, exist_ok=True)
         shutil.copy2(img_path, os.path.join(raca_val_path, os.path.basename(img_path)))
     
-    # Criar geradores
-    datagen = ImageDataGenerator(rescale=1./255)
+    # Criar geradores COM data augmentation
+    train_datagen = ImageDataGenerator(
+        rescale=1./255,
+        rotation_range=20,
+        width_shift_range=0.2,
+        height_shift_range=0.2,
+        shear_range=0.2,
+        zoom_range=0.2,
+        horizontal_flip=True,
+        fill_mode='nearest'
+    )
     
-    train_generator = datagen.flow_from_directory(
+    val_datagen = ImageDataGenerator(rescale=1./255)
+    
+    train_generator = train_datagen.flow_from_directory(
         train_temp,
         target_size=(IMG_SIZE, IMG_SIZE),
         batch_size=BATCH_SIZE,
@@ -211,7 +225,7 @@ def preparar_dados_raca(train_path):
         shuffle=True
     )
     
-    val_generator = datagen.flow_from_directory(
+    val_generator = val_datagen.flow_from_directory(
         val_temp,
         target_size=(IMG_SIZE, IMG_SIZE),
         batch_size=BATCH_SIZE,
@@ -239,8 +253,8 @@ def treinar_modelo(model, train_gen, val_gen, nome):
     print(f"{'='*60}")
     
     callbacks = [
-        EarlyStopping(monitor='val_accuracy', patience=5, restore_best_weights=True, verbose=1),
-        ReduceLROnPlateau(monitor='val_loss', factor=0.2, patience=3, min_lr=0.00001, verbose=1)
+        EarlyStopping(monitor='val_accuracy', patience=8, restore_best_weights=True, verbose=1),
+        ReduceLROnPlateau(monitor='val_loss', factor=0.2, patience=4, min_lr=0.00001, verbose=1)
     ]
     
     history = model.fit(
@@ -257,16 +271,27 @@ def treinar_modelo(model, train_gen, val_gen, nome):
 # FUNÇÃO 5: SALVAR MODELO
 # ============================================
 
-def salvar_modelo(model, path, classes):
+def salvar_modelo(model, path, classes, class_indices=None):
     """Salva modelo e metadados"""
     
     model.save(path)
+    
+    # Se class_indices for fornecido, criar mapeamento correto (índice -> classe)
+    if class_indices is not None:
+        # Criar dicionário invertido: índice -> nome_classe
+        classes_ordenadas = [''] * len(class_indices)
+        for classe_nome, idx in class_indices.items():
+            classes_ordenadas[idx] = classe_nome
+        classes = classes_ordenadas
+    else:
+        classes = list(classes)
     
     info = {
         'classes': classes,
         'num_classes': len(classes),
         'data': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        'tamanho_imagem': IMG_SIZE
+        'tamanho_imagem': IMG_SIZE,
+        'epocas': NUM_EPOCHS
     }
     
     info_path = path.replace('.h5', '_info.json')
@@ -277,50 +302,160 @@ def salvar_modelo(model, path, classes):
     print(f"✓ Info salva: {info_path}")
 
 # ============================================
-# FUNÇÃO 6: CLASSIFICAR IMAGEM
+# FUNÇÃO 6: CLASSIFICAR TODAS IMAGENS DA PASTA TEST
 # ============================================
 
-def classificar_imagem(imagem_path):
-    """Classifica uma imagem usando ambos os modelos"""
+def classificar_todas_imagens_test():
+    """
+    Classifica automaticamente TODAS as imagens da pasta test
+    Mostra o resultado de cada uma individualmente
+    Suporta duas estruturas: 
+    1. dataset/test/especie/raca/imagem.jpg
+    2. dataset/test/imagem.jpg (extrai raça do nome)
+    """
     
-    # Carregar modelos
+    print("\n" + "="*60)
+    print("CLASSIFICANDO TODAS AS IMAGENS DA PASTA TEST")
+    print("="*60)
+    
+    # Verificar se os modelos existem
     if not os.path.exists(MODEL_ESPECIE_PATH) or not os.path.exists(MODEL_RACA_PATH):
-        print("Modelos não encontrados. Treine primeiro!")
-        return None
+        print(" Modelos não encontrados. Treine primeiro (opção 1)!")
+        return
     
+    # Verificar se a pasta test existe
+    if not os.path.exists(TEST_PATH):
+        print(f" Pasta de teste não encontrada: {TEST_PATH}")
+        return
+    
+    # Carregar modelos uma vez
+    print("\n📂 Carregando modelos...")
     model_especie = load_model(MODEL_ESPECIE_PATH)
     model_raca = load_model(MODEL_RACA_PATH)
     
-    # Carregar metadados
     with open(MODEL_ESPECIE_PATH.replace('.h5', '_info.json'), 'r') as f:
         info_especie = json.load(f)
     with open(MODEL_RACA_PATH.replace('.h5', '_info.json'), 'r') as f:
         info_raca = json.load(f)
     
-    # Processar imagem
-    img = load_img(imagem_path, target_size=(IMG_SIZE, IMG_SIZE))
-    img_array = img_to_array(img)
-    img_array = np.expand_dims(img_array, axis=0)
-    img_array = img_array / 255.0
+    # Coletar todas as imagens da pasta test
+    imagens = []
     
-    # Predizer espécie
-    pred_especie = model_especie.predict(img_array, verbose=0)
-    especie_idx = np.argmax(pred_especie[0])
-    especie = info_especie['classes'][especie_idx]
-    conf_especie = pred_especie[0][especie_idx]
+    # Verificar se há subpastas (estrutura esperada)
+    tem_subpastas = any(os.path.isdir(os.path.join(TEST_PATH, item)) for item in os.listdir(TEST_PATH))
     
-    # Predizer raça
-    pred_raca = model_raca.predict(img_array, verbose=0)
-    raca_idx = np.argmax(pred_raca[0])
-    raca = info_raca['classes'][raca_idx]
-    conf_raca = pred_raca[0][raca_idx]
+    if tem_subpastas:
+        # Estrutura: dataset/test/especie/raca/imagem.jpg
+        for especie in os.listdir(TEST_PATH):
+            especie_path = os.path.join(TEST_PATH, especie)
+            if not os.path.isdir(especie_path):
+                continue
+            
+            for raca in os.listdir(especie_path):
+                raca_path = os.path.join(especie_path, raca)
+                if not os.path.isdir(raca_path):
+                    continue
+                
+                for imagem in os.listdir(raca_path):
+                    if imagem.lower().endswith(('.jpg', '.jpeg', '.png')):
+                        imagens.append({
+                            'caminho': os.path.join(raca_path, imagem),
+                            'especie_verdadeira': especie,
+                            'raca_verdadeira': raca,
+                            'nome': imagem
+                        })
+    else:
+        # Estrutura: dataset/test/imagem.jpg (extrai raça do nome)
+        for imagem in os.listdir(TEST_PATH):
+            imagem_path = os.path.join(TEST_PATH, imagem)
+            if os.path.isfile(imagem_path) and imagem.lower().endswith(('.jpg', '.jpeg', '.png')):
+                # Tentar extrair raça do nome (assumindo padrão: raca_numero.jpg)
+                nome_sem_ext = os.path.splitext(imagem)[0]
+                partes = nome_sem_ext.rsplit('_', 1)
+                raca_do_nome = partes[0] if len(partes) > 1 else nome_sem_ext
+                
+                imagens.append({
+                    'caminho': imagem_path,
+                    'especie_verdadeira': 'desconhecido',
+                    'raca_verdadeira': raca_do_nome,
+                    'nome': imagem
+                })
     
-    return {
-        'especie': especie,
-        'confianca_especie': conf_especie,
-        'raca': raca,
-        'confianca_raca': conf_raca
-    }
+    if len(imagens) == 0:
+        print("\n Nenhuma imagem encontrada na pasta test!")
+        print("   Estrutura esperada (opção 1):")
+        print("      dataset/test/cachorro/pitbull/imagem.jpg")
+        print("   ou (opção 2):")
+        print("      dataset/test/imagem.jpg (será extraída a raça do nome)")
+        return
+    
+    print(f"\n📸 Encontradas {len(imagens)} imagem(ns) para classificar")
+    print("="*60)
+    
+    # Classificar cada imagem
+    resultados = []
+    contador = 0
+    
+    for img_info in imagens:
+        contador += 1
+        print(f"\n{'#'*50}")
+        print(f"📷 IMAGEM {contador}/{len(imagens)}: {img_info['nome']}")
+        print(f"   Caminho: {img_info['especie_verdadeira']}/{img_info['raca_verdadeira']}/{img_info['nome']}")
+        print(f"{'#'*50}")
+        
+        # Processar imagem (mesmo pré-processamento do treinamento)
+        img = load_img(img_info['caminho'], target_size=(IMG_SIZE, IMG_SIZE))
+        img_array = img_to_array(img)
+        img_array = np.expand_dims(img_array, axis=0)
+        img_array = img_array / 255.0  # Normalizar para [0, 1]
+        
+        # Predizer espécie
+        pred_especie = model_especie.predict(img_array, verbose=0)
+        especie_idx = np.argmax(pred_especie[0])
+        especie_predita = info_especie['classes'][especie_idx]
+        conf_especie = pred_especie[0][especie_idx]
+        
+        # Predizer raça
+        pred_raca = model_raca.predict(img_array, verbose=0)
+        raca_idx = np.argmax(pred_raca[0])
+        raca_predita = info_raca['classes'][raca_idx]
+        conf_raca = pred_raca[0][raca_idx]
+        
+        # Mostrar resultado formatado
+        print("\n" + "-"*40)
+        print("RESULTADO DA CLASSIFICAÇÃO")
+        print("-"*40)
+        print(f"\n🐾 ESPÉCIE PREVISTA: {especie_predita}")
+        print(f"   Confiança: {conf_especie*100:.2f}%")
+        print(f"\n🐾 RAÇA PREVISTA: {raca_predita}")
+        print(f"   Confiança: {conf_raca*100:.2f}%")
+        print("-"*40)
+        
+        # Salvar resultado
+        resultados.append({
+            'imagem': img_info['nome'],
+            'caminho': img_info['caminho'],
+            'especie_predita': especie_predita,
+            'raca_predita': raca_predita,
+            'confianca_especie': float(conf_especie),
+            'confianca_raca': float(conf_raca)
+        })
+    
+    # Resumo final
+    print("\n" + "="*60)
+    print("📊 RESUMO FINAL")
+    print("="*60)
+    
+    total = len(resultados)
+    print(f"\n📸 Total de imagens classificadas: {total}")
+    print(f"\n✅ Classificações concluídas com sucesso!")
+    
+    # Salvar relatório
+    relatorio_path = "resultados_classificacao.json"
+    with open(relatorio_path, 'w', encoding='utf-8') as f:
+        json.dump(resultados, f, indent=4, ensure_ascii=False)
+    print(f"\n📁 Relatório detalhado salvo em: {relatorio_path}")
+    print("="*60)
 
 # ============================================
 # FUNÇÃO 7: VISUALIZAR TREINAMENTO
@@ -368,15 +503,16 @@ def visualizar_treinamento(history_especie, history_raca):
 def main():
     print("\n" + "="*60)
     print("CLASSIFICADOR HIERÁRQUICO - 2 MODELOS SEPARADOS")
-    print("="*60)
     
     while True:
-        print("\nMENU:")
+        print("\n" + "="*60)
+        print("MENU PRINCIPAL")
+        print("="*60)
         print("1 - Treinar modelos")
-        print("2 - Classificar imagem")
+        print("2 - Testar TODAS as imagens da pasta TEST")
         print("3 - Sair")
         
-        opcao = input("\nEscolha: ")
+        opcao = input("\nEscolha (1-3): ")
         
         if opcao == '1':
             try:
@@ -385,10 +521,10 @@ def main():
                 print("TREINANDO CLASSIFICADOR DE ESPÉCIE")
                 print("-"*30)
                 
-                train_gen_esp, val_gen_esp, especies = preparar_dados_especie(TRAIN_PATH, TEST_PATH)
+                train_gen_esp, val_gen_esp, especies = preparar_dados_especie(TRAIN_PATH)
                 model_esp = criar_modelo(len(especies), "ESPÉCIE")
                 history_esp = treinar_modelo(model_esp, train_gen_esp, val_gen_esp, "ESPÉCIE")
-                salvar_modelo(model_esp, MODEL_ESPECIE_PATH, especies)
+                salvar_modelo(model_esp, MODEL_ESPECIE_PATH, especies, train_gen_esp.class_indices)
                 
                 # Treinar modelo de RAÇA
                 print("\n" + "-"*30)
@@ -398,39 +534,32 @@ def main():
                 train_gen_raca, val_gen_raca, racas = preparar_dados_raca(TRAIN_PATH)
                 model_raca = criar_modelo(len(racas), "RAÇA")
                 history_raca = treinar_modelo(model_raca, train_gen_raca, val_gen_raca, "RAÇA")
-                salvar_modelo(model_raca, MODEL_RACA_PATH, racas)
+                salvar_modelo(model_raca, MODEL_RACA_PATH, racas, train_gen_raca.class_indices)
                 
                 # Visualizar resultados
                 visualizar_treinamento(history_esp, history_raca)
                 
-                print("\n✅ MODELOS TREINADOS COM SUCESSO!")
+                print("\n" + "="*60)
+                print(" MODELOS TREINADOS COM SUCESSO!")
+                print(f"   - Espécies: {len(especies)}")
+                print(f"   - Raças: {len(racas)}")
+                print(f"   - Épocas: {NUM_EPOCHS}")
+                print("="*60)
                 
             except Exception as e:
-                print(f"\n Erro: {e}")
+                print(f"\n Erro durante treinamento: {e}")
                 import traceback
                 traceback.print_exc()
         
         elif opcao == '2':
-            imagem_path = input("Caminho da imagem: ")
-            
-            if not os.path.exists(imagem_path):
-                print(" Imagem não encontrada!")
-                continue
-            
-            resultado = classificar_imagem(imagem_path)
-            
-            if resultado:
-                print("\n" + "="*40)
-                print("RESULTADO DA CLASSIFICAÇÃO")
-                print("="*40)
-                print(f" ESPÉCIE: {resultado['especie'].upper()}")
-                print(f"   Confiança: {resultado['confianca_especie']*100:.2f}%")
-                print(f"\n RAÇA: {resultado['raca']}")
-                print(f"   Confiança: {resultado['confianca_raca']*100:.2f}%")
+            classificar_todas_imagens_test()
         
         elif opcao == '3':
-            print("Encerrando...")
+            print("\n Encerrando programa. Até mais!")
             break
+        
+        else:
+            print(" Opção inválida! Escolha 1, 2 ou 3.")
 
 if __name__ == "__main__":
     main()
