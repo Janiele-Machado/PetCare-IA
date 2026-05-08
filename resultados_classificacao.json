@@ -1,10 +1,18 @@
 [
     {
-        "imagem": "chihuahua_35.jpg",
-        "caminho": "dataset\\test\\chihuahua_35.jpg",
+        "imagem": "Abyssinian_1.jpg",
+        "caminho": "dataset\\test\\Abyssinian_1.jpg",
         "especie_predita": "gato",
-        "raca_predita": "Ragdoll",
-        "confianca_especie": 0.5298541784286499,
-        "confianca_raca": 0.05466078594326973
+        "raca_predita": "abissimo",
+        "confianca_especie": 0.9965206384658813,
+        "confianca_raca": 0.966593861579895
+    },
+    {
+        "imagem": "chihuahua_14.jpg",
+        "caminho": "dataset\\test\\chihuahua_14.jpg",
+        "especie_predita": "cachorro",
+        "raca_predita": "chihuahua",
+        "confianca_especie": 0.9600900411605835,
+        "confianca_raca": 0.8061291575431824
     }
 ]

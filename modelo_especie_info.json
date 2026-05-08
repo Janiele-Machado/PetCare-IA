@@ -4,7 +4,7 @@
         "gato"
     ],
     "num_classes": 2,
-    "data": "2026-05-07 17:39:30",
+    "data": "2026-05-08 14:32:21",
     "tamanho_imagem": 224,
-    "epocas": 12
+    "epocas": 25
 }

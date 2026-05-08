@@ -39,7 +39,7 @@
         "yorkshire_terrier"
     ],
     "num_classes": 37,
-    "data": "2026-05-07 20:29:57",
+    "data": "2026-05-08 20:15:18",
     "tamanho_imagem": 224,
-    "epocas": 12
+    "epocas": 25
 }

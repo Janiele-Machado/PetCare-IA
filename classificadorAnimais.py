@@ -20,6 +20,7 @@ Dois modelos separados: um para espécie, outro para raça
 
 import tensorflow as tf
 from tensorflow.keras.applications import ResNet50
+from tensorflow.keras.applications.resnet50 import preprocess_input
 from tensorflow.keras.models import Model, load_model
 from tensorflow.keras.layers import Dense, GlobalAveragePooling2D, Dropout, BatchNormalization
 from tensorflow.keras.preprocessing.image import ImageDataGenerator, load_img, img_to_array
@@ -41,8 +42,12 @@ TEST_PATH = os.path.join(DATASET_PATH, "test")
 
 IMG_SIZE = 224
 BATCH_SIZE = 16
-NUM_EPOCHS = 12
-LEARNING_RATE = 0.001
+INITIAL_EPOCHS = 10
+FINE_TUNE_EPOCHS = 15
+NUM_EPOCHS = INITIAL_EPOCHS + FINE_TUNE_EPOCHS
+LEARNING_RATE = 1e-4
+FINE_TUNE_LEARNING_RATE = 1e-5
+FINE_TUNE_AT = 100
 
 MODEL_ESPECIE_PATH = "modelo_especie.h5"
 MODEL_RACA_PATH = "modelo_raca.h5"
@@ -57,10 +62,8 @@ def criar_modelo(num_classes, nome_modelo):
     print(f"\nCriando modelo para {nome_modelo} com {num_classes} classes...")
     
     base_model = ResNet50(weights='imagenet', include_top=False, input_shape=(IMG_SIZE, IMG_SIZE, 3))
-    # Descongelar as últimas camadas da base para fine-tuning
-    base_model.trainable = True
-    for layer in base_model.layers[:-30]:  # Congelar tudo, exceto as últimas 30 camadas
-        layer.trainable = False
+    # Congelar a base inicialmente e treinar apenas a cabeça
+    base_model.trainable = False
     
     x = GlobalAveragePooling2D()(base_model.output)
     x = Dense(512, activation='relu')(x)
@@ -92,7 +95,7 @@ def preparar_dados_especie(train_path):
     print("="*60)
     
     train_datagen = ImageDataGenerator(
-        rescale=1./255,
+        preprocessing_function=preprocess_input,
         rotation_range=20,
         width_shift_range=0.2,
         height_shift_range=0.2,
@@ -205,7 +208,7 @@ def preparar_dados_raca(train_path):
     
     # Criar geradores COM data augmentation
     train_datagen = ImageDataGenerator(
-        rescale=1./255,
+        preprocessing_function=preprocess_input,
         rotation_range=20,
         width_shift_range=0.2,
         height_shift_range=0.2,
@@ -215,7 +218,7 @@ def preparar_dados_raca(train_path):
         fill_mode='nearest'
     )
     
-    val_datagen = ImageDataGenerator(rescale=1./255)
+    val_datagen = ImageDataGenerator(preprocessing_function=preprocess_input)
     
     train_generator = train_datagen.flow_from_directory(
         train_temp,
@@ -246,7 +249,7 @@ def preparar_dados_raca(train_path):
 # ============================================
 
 def treinar_modelo(model, train_gen, val_gen, nome):
-    """Treina um modelo"""
+    """Treina um modelo em duas fases: cabeça + fine-tuning."""
     
     print(f"\n{'='*60}")
     print(f"TREINANDO MODELO: {nome}")
@@ -254,18 +257,47 @@ def treinar_modelo(model, train_gen, val_gen, nome):
     
     callbacks = [
         EarlyStopping(monitor='val_accuracy', patience=8, restore_best_weights=True, verbose=1),
-        ReduceLROnPlateau(monitor='val_loss', factor=0.2, patience=4, min_lr=0.00001, verbose=1)
+        ReduceLROnPlateau(monitor='val_loss', factor=0.2, patience=4, min_lr=1e-6, verbose=1)
     ]
     
-    history = model.fit(
+    print(f"\nFase 1: treinando apenas a cabeça por {INITIAL_EPOCHS} épocas...")
+    history_head = model.fit(
         train_gen,
         validation_data=val_gen,
-        epochs=NUM_EPOCHS,
+        epochs=INITIAL_EPOCHS,
         callbacks=callbacks,
         verbose=1
     )
     
-    return history
+    # Fine-tuning: descongelar as últimas camadas da base e treinar com learning rate menor
+    print(f"\nFase 2: fine-tuning das últimas {FINE_TUNE_AT} camadas por {FINE_TUNE_EPOCHS} épocas...")
+    model.trainable = True
+    for layer in model.layers[:-FINE_TUNE_AT]:
+        layer.trainable = False
+    
+    model.compile(
+        optimizer=Adam(learning_rate=FINE_TUNE_LEARNING_RATE),
+        loss='categorical_crossentropy',
+        metrics=['accuracy']
+    )
+    
+    history_finetune = model.fit(
+        train_gen,
+        validation_data=val_gen,
+        epochs=NUM_EPOCHS,
+        initial_epoch=INITIAL_EPOCHS,
+        callbacks=callbacks,
+        verbose=1
+    )
+    
+    # Unir histórico das duas fases
+    class CombinedHistory:
+        def __init__(self, h1, h2):
+            self.history = {}
+            for key in h1.history:
+                self.history[key] = h1.history[key] + h2.history[key]
+    
+    return CombinedHistory(history_head, history_finetune)
 
 # ============================================
 # FUNÇÃO 5: SALVAR MODELO
@@ -329,7 +361,7 @@ def classificar_todas_imagens_test():
         return
     
     # Carregar modelos uma vez
-    print("\n📂 Carregando modelos...")
+    print("\nCarregando modelos...")
     model_especie = load_model(MODEL_ESPECIE_PATH)
     model_raca = load_model(MODEL_RACA_PATH)
     
@@ -389,7 +421,7 @@ def classificar_todas_imagens_test():
         print("      dataset/test/imagem.jpg (será extraída a raça do nome)")
         return
     
-    print(f"\n📸 Encontradas {len(imagens)} imagem(ns) para classificar")
+    print(f"\n Encontradas {len(imagens)} imagem(ns) para classificar")
     print("="*60)
     
     # Classificar cada imagem
@@ -399,7 +431,7 @@ def classificar_todas_imagens_test():
     for img_info in imagens:
         contador += 1
         print(f"\n{'#'*50}")
-        print(f"📷 IMAGEM {contador}/{len(imagens)}: {img_info['nome']}")
+        print(f" IMAGEM {contador}/{len(imagens)}: {img_info['nome']}")
         print(f"   Caminho: {img_info['especie_verdadeira']}/{img_info['raca_verdadeira']}/{img_info['nome']}")
         print(f"{'#'*50}")
         
@@ -407,7 +439,7 @@ def classificar_todas_imagens_test():
         img = load_img(img_info['caminho'], target_size=(IMG_SIZE, IMG_SIZE))
         img_array = img_to_array(img)
         img_array = np.expand_dims(img_array, axis=0)
-        img_array = img_array / 255.0  # Normalizar para [0, 1]
+        img_array = preprocess_input(img_array)
         
         # Predizer espécie
         pred_especie = model_especie.predict(img_array, verbose=0)
@@ -425,10 +457,10 @@ def classificar_todas_imagens_test():
         print("\n" + "-"*40)
         print("RESULTADO DA CLASSIFICAÇÃO")
         print("-"*40)
-        print(f"\n🐾 ESPÉCIE PREVISTA: {especie_predita}")
-        print(f"   Confiança: {conf_especie*100:.2f}%")
-        print(f"\n🐾 RAÇA PREVISTA: {raca_predita}")
-        print(f"   Confiança: {conf_raca*100:.2f}%")
+        print(f"\nESPÉCIE PREVISTA: {especie_predita}")
+        print(f"  Probabilidade de acerto da espécie: {conf_especie*100:.2f}%")
+        print(f"\nRAÇA PREVISTA: {raca_predita}")
+        print(f"  Probabilidade de acerto da raça: {conf_raca*100:.2f}%")
         print("-"*40)
         
         # Salvar resultado
@@ -443,18 +475,18 @@ def classificar_todas_imagens_test():
     
     # Resumo final
     print("\n" + "="*60)
-    print("📊 RESUMO FINAL")
+    print("RESUMO FINAL")
     print("="*60)
     
     total = len(resultados)
-    print(f"\n📸 Total de imagens classificadas: {total}")
-    print(f"\n✅ Classificações concluídas com sucesso!")
+    print(f"\n Total de imagens classificadas: {total}")
+    print(f"\n Classificações concluídas com sucesso!")
     
     # Salvar relatório
     relatorio_path = "resultados_classificacao.json"
     with open(relatorio_path, 'w', encoding='utf-8') as f:
         json.dump(resultados, f, indent=4, ensure_ascii=False)
-    print(f"\n📁 Relatório detalhado salvo em: {relatorio_path}")
+    print(f"\n Relatório detalhado salvo em: {relatorio_path}")
     print("="*60)
 
 # ============================================
