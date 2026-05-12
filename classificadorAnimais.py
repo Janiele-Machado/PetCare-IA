@@ -587,7 +587,7 @@ def main():
             classificar_todas_imagens_test()
         
         elif opcao == '3':
-            print("\n Encerrando programa. Até mais!")
+            print("\nEncerrando programa. Até mais!")
             break
         
         else:
