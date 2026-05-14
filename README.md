@@ -1,180 +1,206 @@
-# Classificador Hierárquico de Espécies e Raças com Deep Learning
+# Classificador Hierárquico de Espécies e Raças com YOLOv8
 
-Sistema de Inteligência Artificial desenvolvido em Python para classificação automática de espécies e raças de animais utilizando Deep Learning com a arquitetura ResNet50 e TensorFlow.
+Sistema de Inteligência Artificial desenvolvido em Python para classificação automática de espécies e raças de animais, com **detecção visual por bounding box**, utilizando a arquitetura **YOLOv8** da Ultralytics.
 
-O projeto utiliza dois modelos separados:
+O projeto utiliza três modelos:
 
-Modelo 1 → classificação de espécie (cachorro ou gato)
-Modelo 2 → classificação de raça
+- **Modelo 1** → detecção do animal na imagem (bounding box)
+- **Modelo 2** → classificação de espécie (cachorro ou gato)
+- **Modelo 3** → classificação de raça
+
+---
 
 ## Objetivo do Projeto
 
-O objetivo deste projeto é criar um sistema capaz de identificar automaticamente animais em imagens, classificando:
+Identificar automaticamente animais em imagens, classificando a espécie e a raça, e **plotar cada imagem testada** com:
 
-A espécie do animal
-A raça correspondente
+- Bounding box desenhado ao redor do animal detectado
+- Gráfico Top-5 de espécies com percentuais de confiança
+- Gráfico Top-5 de raças com percentuais de confiança
 
-O sistema foi desenvolvido utilizando técnicas modernas de Visão Computacional e Deep Learning, aplicando Transfer Learning com ResNet50.
+---
 
-- Tecnologias Utilizadas
-- Python
-- TensorFlow
-- Keras
-- ResNet50
+## Tecnologias Utilizadas
+
+- Python 3.12
+- [Ultralytics YOLOv8](https://github.com/ultralytics/ultralytics)
+- PyTorch
 - NumPy
 - Matplotlib
-- Scikit-Learn
-  
-## Conceitos Aplicados
+- Pillow
 
-Este projeto utiliza diversos conceitos importantes da área de Inteligência Artificial:
+### Instalação das dependências
+
+```bash
+pip install ultralytics matplotlib numpy pillow
+```
+
+---
+
+## Conceitos Aplicados
 
 - Deep Learning
 - Redes Neurais Convolucionais (CNN)
-- Transfer Learning
-- Data Augmentation
+- Transfer Learning (a partir de `yolov8n-cls.pt` pré-treinado no ImageNet)
+- Object Detection com bounding box
 - Classificação Hierárquica
-- Batch Normalization
-- Dropout
-- Early Stopping
-- Reduce Learning Rate on Plateau
+- Data Augmentation
+
+---
+
 ## Estrutura do Projeto
-    dataset/
-    │
-    ├── train/
-    │   ├── cachorro/
-    │   │  
-    │   ├── coelho/
-    │   │   
-    │   │
-    │   └── gato/
-    │  │
-    └── test/
-        (Arquivos que serão testados)
+
+```
+dataset/
+├── train/
+│   ├── cachorro/
+│   │   ├── chihuahua/
+│   │   ├── golden_retriever/
+│   │   └── ...
+│   ├── gato/
+│   │   ├── siamese/
+│   │   ├── sphynx/
+│   │   └── ...
+│   └── coelho/
+│       └── ...
+└── test/
+    ├── cachorro/
+    │   └── chihuahua/
+    │       └── imagem.jpg
+    └── (ou diretamente imagens na raiz)
+
+runs/classify/                  ← gerado automaticamente pelo Ultralytics
+├── modelo_especie_yolo/
+│   └── treino/weights/best.pt
+└── modelo_raca_yolo/
+    └── treino/weights/best.pt
+
+modelo_especie_info.json
+modelo_raca_info.json
+resultados_classificacao.json
+resultado_001_<nome>.png        ← plots gerados por imagem testada
+```
+
+---
 
 ## Funcionamento do Sistema
-Modelo de Espécie
 
-- O primeiro modelo identifica a espécie do animal
+### Fluxo completo
 
-Modelo de Raça
+```
+Imagem
+  └─▶ yolov8n.pt (detecção geral)
+          └─▶ Bounding box desenhado
+  └─▶ modelo_especie_yolo (classificação)
+          └─▶ Espécie + Top-5 com confiança
+  └─▶ modelo_raca_yolo (classificação)
+          └─▶ Raça + Top-5 com confiança
+  └─▶ Plot salvo em PNG
+```
 
-- O segundo modelo identifica a raça do animal.
+### Modelo de Detecção (`yolov8n.pt`)
 
-## Fluxo do Sistema
-    Imagem →
-        Modelo de Espécie →
-              Modelo de Raça →
-                  Resultado Final
+Utiliza o modelo geral do YOLOv8 treinado no COCO para **localizar o animal na imagem** e desenhar o bounding box com o label e a confiança — exatamente como visto em exemplos clássicos de detecção de objetos.
 
-## Arquitetura Utilizada
+### Modelo de Espécie
 
-  O projeto utiliza a arquitetura pré-treinada ResNet50 com Transfer Learning.
+Classifica a espécie do animal identificado (ex.: cachorro, gato, coelho).
 
-  A ResNet50 foi treinada originalmente no dataset ImageNet e reutilizada como extratora de características.
+### Modelo de Raça
 
-## O modelo utiliza:
+Classifica a raça dentro das 37 raças disponíveis no dataset.
 
-- Camadas Dense
-- Dropout
-- BatchNormalization
-- Softmax para classificação
-- Data Augmentation
+---
 
-## Para melhorar a capacidade de generalização da IA, o projeto aplica:
+## Como Executar
 
-- Rotação
-- Zoom
-- Espelhamento horizontal
-- Deslocamento horizontal e vertical
-= Shear transformation
+1. Clone este repositório
+2. Instale as dependências:
+```bash
+pip install ultralytics matplotlib numpy pillow
+```
+3. Execute o script principal:
+```bash
+python classificador_yolov8.py
+```
+4. Escolha uma opção no menu:
+```
+1 - Treinar modelos
+2 - Testar e plotar TODAS as imagens da pasta TEST
+3 - Ver métricas do último treinamento
+4 - Sair
+```
 
-### Isso ajuda a reduzir overfitting.
-
-## Como Executar o Projeto
-1. Clone este repositório.
-3. Instale as dependências
-
-       pip install tensorflow matplotlib numpy scikit-learn pillow
-
+---
 
 ## Treinamento
 
 Durante o treinamento o sistema:
 
-- Cria os modelos
-- Carrega as imagens
-- Aplica Data Augmentation
-- Treina a IA
-- Salva os modelos
-- Gera gráficos de desempenho
-- Modelos Gerados
+- Reorganiza o dataset em pastas temporárias separadas por espécie e por raça
+- Aplica Data Augmentation (rotação, zoom, flip horizontal, shear, deslocamento)
+- Treina dois modelos YOLOv8 de classificação com Transfer Learning
+- Salva os pesos do melhor modelo (`best.pt`) automaticamente
+- Gera gráficos de acurácia e loss (`results.png`)
+- Salva os metadados de cada modelo em JSON
 
-## Após o treinamento:
+### Configurações padrão
 
-- modelo_especie.h5
-- modelo_raca.h5
+| Parâmetro | Valor |
+|---|---|
+| Épocas | 30 |
+| Tamanho da imagem | 224 × 224 |
+| Batch size | 16 |
+| Learning rate | 1e-3 |
+| Divisão treino/val | 80% / 20% |
+| Backbone | yolov8n-cls.pt |
 
-## Também são gerados arquivos JSON contendo:
+---
 
-- classes
-- quantidade de classes
-- data do treinamento
-- tamanho das imagens
-- número de épocas
-- Relatórios Gerados
+## Arquivos Gerados
 
-## O projeto salva:
+| Arquivo | Descrição |
+|---|---|
+| `runs/classify/modelo_especie_yolo/treino/weights/best.pt` | Pesos do modelo de espécie |
+| `runs/classify/modelo_raca_yolo/treino/weights/best.pt` | Pesos do modelo de raça |
+| `modelo_especie_info.json` | Metadados do modelo de espécie |
+| `modelo_raca_info.json` | Metadados do modelo de raça |
+| `resultado_001_<nome>.png` | Plot de cada imagem testada |
+| `resultados_classificacao.json` | Relatório completo das classificações |
 
-- Resultados do treinamento
-resultados_treinamento.png
-- Relatório de classificação
-resultados_classificacao.json
-- Técnicas de Otimização Utilizadas
-EarlyStopping
+---
 
-### Interrompe o treinamento automaticamente caso o modelo pare de melhorar.
+## Exemplo de Plot Gerado
 
-ReduceLROnPlateau
+Cada imagem testada gera um plot com três painéis lado a lado:
 
-Reduz automaticamente a taxa de aprendizado quando necessário.
+- **Esquerda:** imagem original com bounding box verde e label de detecção
+- **Centro:** gráfico horizontal Top-5 de espécies com percentuais de confiança
+- **Direita:** gráfico horizontal Top-5 de raças com percentuais de confiança
+
+---
 
 ## Dataset Utilizado
 
- O modelo foi treinado utilizando o dataset Oxford-IIIT Pet Dataset, amplamente utilizado em pesquisas acadêmicas e projetos de Visão Computacional e Deep Learning.
+O modelo foi treinado com o **Oxford-IIIT Pet Dataset**, amplamente utilizado em pesquisas de Visão Computacional.
 
-## O dataset contém:
+| Característica | Detalhe |
+|---|---|
+| Total de imagens | 7.387 |
+| Raças | 37 (25 de cachorro, 12 de gato) |
+| Variações | poses, iluminações, fundos, ângulos e tamanhos distintos |
 
-- 7.387 imagens
-- 37 raças diferentes
-   - 25 raças de cachorros
-  - 12 raças de gatos
+---
 
-As imagens possuem diferentes:
-
-- poses
-- iluminações
-- fundos
-- ângulos
-- tamanhos
-
-  Isso torna o treinamento mais robusto e ajuda o modelo a aprender características reais dos animais.
-
-## O sistema é capaz de:
-
-- Identificar espécies automaticamente
-- Classificar raças
-- Calcular acurácia
-- Gerar relatórios automáticos
-- Aplicações do Projeto
-
-## Este projeto pode ser utilizado em:
+## Aplicações do Projeto
 
 - Sistemas veterinários
-- Aplicativos de adoção
+- Aplicativos de adoção de animais
 - Monitoramento animal
-- Sistemas acadêmicos
-- Estudos de Visão Computacional
+- Estudos acadêmicos de Visão Computacional
 - Projetos de Inteligência Artificial
 
-### Projeto desenvolvido para estudos e aplicações de Deep Learning e Visão Computacional utilizando Python e TensorFlow.
+---
+
+Projeto desenvolvido para estudos e aplicações de Deep Learning e Visão Computacional utilizando Python e YOLOv8.
+
