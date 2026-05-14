@@ -1,5 +1,6 @@
 {
     "classes": [
+        "Abyssinian",
         "British_Shorthair",
         "Egyptian_Mau",
         "Maine_Coon",
@@ -8,7 +9,6 @@
         "Russian_Blue",
         "Siamese",
         "Sphynx",
-        "abissimo",
         "basset",
         "beagle",
         "bengal",
@@ -39,7 +39,8 @@
         "yorkshire_terrier"
     ],
     "num_classes": 37,
-    "data": "2026-05-08 20:15:18",
+    "data": "2026-05-14 19:00:59",
     "tamanho_imagem": 224,
-    "epocas": 25
+    "epocas": 30,
+    "modelo_path": "modelo_raca_yolo\\treino\\weights\\best.pt"
 }

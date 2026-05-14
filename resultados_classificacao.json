@@ -3,16 +3,24 @@
         "imagem": "Abyssinian_1.jpg",
         "caminho": "dataset\\test\\Abyssinian_1.jpg",
         "especie_predita": "gato",
-        "raca_predita": "abissimo",
-        "confianca_especie": 0.9965206384658813,
-        "confianca_raca": 0.966593861579895
+        "raca_predita": "Abyssinian",
+        "confianca_especie": 0.9999996423721313,
+        "confianca_raca": 0.9963323473930359
+    },
+    {
+        "imagem": "Egyptian_Mau_25.jpg",
+        "caminho": "dataset\\test\\Egyptian_Mau_25.jpg",
+        "especie_predita": "gato",
+        "raca_predita": "Egyptian_Mau",
+        "confianca_especie": 1.0,
+        "confianca_raca": 0.9993225336074829
     },
     {
         "imagem": "chihuahua_14.jpg",
         "caminho": "dataset\\test\\chihuahua_14.jpg",
         "especie_predita": "cachorro",
         "raca_predita": "chihuahua",
-        "confianca_especie": 0.9600900411605835,
-        "confianca_raca": 0.8061291575431824
+        "confianca_especie": 0.999948263168335,
+        "confianca_raca": 0.9566584825515747
     }
 ]

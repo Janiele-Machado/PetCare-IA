@@ -4,7 +4,8 @@
         "gato"
     ],
     "num_classes": 2,
-    "data": "2026-05-08 14:32:21",
+    "data": "2026-05-14 16:47:57",
     "tamanho_imagem": 224,
-    "epocas": 25
+    "epocas": 30,
+    "modelo_path": "modelo_especie_yolo\\treino\\weights\\best.pt"
 }
