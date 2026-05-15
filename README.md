@@ -64,10 +64,7 @@ dataset/
 │   └── coelho/
 │       └── ...
 └── test/
-    ├── cachorro/
-    │   └── chihuahua/
-    │       └── imagem.jpg
-    └── (ou diretamente imagens na raiz)
+    └── (imagens diretamente na raiz)
 
 runs/classify/                  ← gerado automaticamente pelo Ultralytics
 ├── modelo_especie_yolo/
@@ -100,7 +97,7 @@ Imagem
 
 ### Modelo de Detecção (`yolov8n.pt`)
 
-Utiliza o modelo geral do YOLOv8 treinado no COCO para **localizar o animal na imagem** e desenhar o bounding box com o label e a confiança — exatamente como visto em exemplos clássicos de detecção de objetos.
+Utiliza o modelo geral do YOLOv8 treinado no COCO para **localizar o animal na imagem** e desenhar o bounding box com o label e a confiança - exatamente como visto em exemplos clássicos de detecção de objetos.
 
 ### Modelo de Espécie
 
@@ -108,7 +105,7 @@ Classifica a espécie do animal identificado (ex.: cachorro, gato, coelho).
 
 ### Modelo de Raça
 
-Classifica a raça dentro das 37 raças disponíveis no dataset.
+Classifica a raça dentro das raças disponíveis no dataset.
 
 ---
 
@@ -122,13 +119,6 @@ pip install ultralytics matplotlib numpy pillow
 3. Execute o script principal:
 ```bash
 python classificador_yolov8.py
-```
-4. Escolha uma opção no menu:
-```
-1 - Treinar modelos
-2 - Testar e plotar TODAS as imagens da pasta TEST
-3 - Ver métricas do último treinamento
-4 - Sair
 ```
 
 ---
