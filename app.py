@@ -1,129 +1,143 @@
 """
 PROJETO: CLASSIFICADOR HIERÁRQUICO COM YOLOv8
-Dois modelos separados: um para espécie, outro para raça
-Com plot automático das imagens classificadas
- 
+Interface Web com Flask — Rosa Bebê Edition 
+Suporta: cachorro, gato, cobra, coelho
+
 Dependências:
-    pip install ultralytics matplotlib numpy pillow
+    pip install ultralytics flask matplotlib numpy pillow
 """
- 
+
 # ============================================
-# IMPORTAÇÃO DAS BIBLIOTECAS
+# IMPORTAÇÕES
 # ============================================
- 
+
 import os
+import sys
 import json
 import shutil
 import tempfile
+import threading
+import io
+import base64
 from datetime import datetime
 from pathlib import Path
- 
+
 import numpy as np
+import matplotlib
+matplotlib.use("Agg")          # backend não-interativo (obrigatório para Flask)
 import matplotlib.pyplot as plt
-import matplotlib.patches as mpatches
+import matplotlib.patches as patches
 from PIL import Image
 from ultralytics import YOLO
- 
+from flask import Flask, render_template, request, jsonify
+
 # ============================================
 # CONFIGURAÇÕES
 # ============================================
- 
+
 DATASET_PATH   = "dataset"
 TRAIN_PATH     = os.path.join(DATASET_PATH, "train")
 TEST_PATH      = os.path.join(DATASET_PATH, "test")
- 
+
 IMG_SIZE       = 224
-EPOCHS         = 30           # YOLOv8 converge mais rápido que ResNet
+EPOCHS         = 30
 BATCH_SIZE     = 16
 LEARNING_RATE  = 1e-3
- 
-# O Ultralytics sempre salva em runs/classify/<name>/
+
 RUNS_DIR           = "runs/classify"
 MODEL_ESPECIE_NAME = "modelo_especie_yolo"
 MODEL_RACA_NAME    = "modelo_raca_yolo"
- 
-# Caminhos completos dos pesos (onde o Ultralytics realmente salva)
+
+# Onde o Ultralytics salva os pesos
 MODEL_ESPECIE_PATH = os.path.join(RUNS_DIR, MODEL_ESPECIE_NAME, "treino", "weights", "best.pt")
 MODEL_RACA_PATH    = os.path.join(RUNS_DIR, MODEL_RACA_NAME,    "treino", "weights", "best.pt")
- 
+
 INFO_ESPECIE_PATH  = "modelo_especie_info.json"
 INFO_RACA_PATH     = "modelo_raca_info.json"
- 
+
+# Espécies suportadas (devem ser as pastas em dataset/train/)
+# cachorro | gato | cobras | coelho
+ESPECIES_SUPORTADAS = ["cachorro", "gato", "cobras", "coelho"]
+
 # ============================================
-# FUNÇÃO 1: PREPARAR DATASET DE ESPÉCIE
+# FLASK APP
 # ============================================
- 
-def preparar_dataset_especie(train_path: str) -> tuple[str, str, list[str]]:
-    """
-    Reorganiza o dataset para classificação por espécie.
-    Estrutura esperada em train_path:
-        train_path/
-            especie_a/
-                raca_x/
-                    img1.jpg ...
-            especie_b/
-                ...
-    Retorna os caminhos de treino/val e lista de espécies.
-    """
-    print("\n" + "=" * 60)
-    print("PREPARANDO DATASET PARA ESPÉCIE")
-    print("=" * 60)
- 
-    base = os.path.join(tempfile.gettempdir(), "yolo_especie")
+
+app = Flask(__name__)
+app.config["MAX_CONTENT_LENGTH"] = 32 * 1024 * 1024  # 32 MB
+
+# ============================================
+# ESTADO GLOBAL DE TREINAMENTO
+# ============================================
+
+training_state = {
+    "running": False,
+    "log":     [],
+    "done":    False,
+    "error":   None,
+    "especies": 0,
+    "racas":    0,
+}
+
+
+def _log(msg: str) -> None:
+    """Registra mensagem no log de treinamento E no console."""
+    print(msg, flush=True)
+    training_state["log"].append(str(msg))
+
+
+# ============================================
+# FUNÇÕES DE ML — PREPARAR DATASETS
+# ============================================
+
+def preparar_dataset_especie(train_path: str):
+    _log("=" * 60)
+    _log("PREPARANDO DATASET → ESPÉCIE")
+    _log("=" * 60)
+
+    base      = os.path.join(tempfile.gettempdir(), "yolo_especie")
     train_dir = os.path.join(base, "train")
     val_dir   = os.path.join(base, "val")
- 
+
     for d in [train_dir, val_dir]:
         if os.path.exists(d):
             shutil.rmtree(d)
         os.makedirs(d)
- 
+
     especies = sorted([
         e for e in os.listdir(train_path)
         if os.path.isdir(os.path.join(train_path, e))
     ])
- 
+
     for especie in especies:
-        especie_path = os.path.join(train_path, especie)
-        imagens = _coletar_imagens(especie_path, recursivo=True)
- 
-        split = max(1, int(len(imagens) * 0.2))
-        val_imgs   = imagens[:split]
-        train_imgs = imagens[split:]
- 
-        for subset, imgs in [("train", train_imgs), ("val", val_imgs)]:
+        imagens = _coletar_imagens(os.path.join(train_path, especie), recursivo=True)
+        split   = max(1, int(len(imagens) * 0.2))
+
+        for subset, imgs in [("train", imagens[split:]), ("val", imagens[:split])]:
             dest = os.path.join(base, subset, especie)
             os.makedirs(dest, exist_ok=True)
             for src in imgs:
                 shutil.copy2(src, os.path.join(dest, os.path.basename(src)))
- 
-    print(f"✓ Espécies encontradas: {especies}")
-    print(f"✓ Treino/Val prontos em: {base}")
+
+    _log(f"✓ Espécies: {especies}")
+    _log(f"✓ Dataset pronto em: {base}")
     return train_dir, val_dir, especies
- 
- 
-# ============================================
-# FUNÇÃO 2: PREPARAR DATASET DE RAÇA
-# ============================================
- 
-def preparar_dataset_raca(train_path: str) -> tuple[str, str, list[str]]:
-    """
-    Reorganiza o dataset para classificação por raça (ignora espécie).
-    Retorna os caminhos de treino/val e lista de raças.
-    """
-    print("\n" + "=" * 60)
-    print("PREPARANDO DATASET PARA RAÇA")
-    print("=" * 60)
- 
-    base = os.path.join(tempfile.gettempdir(), "yolo_raca")
+
+
+def preparar_dataset_raca(train_path: str):
+    _log("=" * 60)
+    _log("PREPARANDO DATASET → RAÇA")
+    _log("=" * 60)
+
+    base      = os.path.join(tempfile.gettempdir(), "yolo_raca")
     train_dir = os.path.join(base, "train")
     val_dir   = os.path.join(base, "val")
- 
+
     for d in [train_dir, val_dir]:
         if os.path.exists(d):
             shutil.rmtree(d)
         os.makedirs(d)
- 
+
     racas = []
     for especie in os.listdir(train_path):
         especie_path = os.path.join(train_path, especie)
@@ -135,64 +149,46 @@ def preparar_dataset_raca(train_path: str) -> tuple[str, str, list[str]]:
                 continue
             racas.append(raca)
             imagens = _coletar_imagens(raca_path, recursivo=False)
- 
-            split = max(1, int(len(imagens) * 0.2))
-            val_imgs   = imagens[:split]
-            train_imgs = imagens[split:]
- 
-            for subset, imgs in [("train", train_imgs), ("val", val_imgs)]:
+            split   = max(1, int(len(imagens) * 0.2))
+
+            for subset, imgs in [("train", imagens[split:]), ("val", imagens[:split])]:
                 dest = os.path.join(base, subset, raca)
                 os.makedirs(dest, exist_ok=True)
                 for src in imgs:
                     shutil.copy2(src, os.path.join(dest, os.path.basename(src)))
- 
+
     racas = sorted(set(racas))
-    print(f"✓ Raças encontradas: {len(racas)}")
-    print(f"✓ Treino/Val prontos em: {base}")
+    _log(f"✓ Raças encontradas: {len(racas)}")
+    _log(f"✓ Dataset pronto em: {base}")
     return train_dir, val_dir, racas
- 
- 
+
+
 # ============================================
-# FUNÇÃO 3: TREINAR MODELO YOLOV8
+# FUNÇÕES DE ML — TREINAR E SALVAR
 # ============================================
- 
-def treinar_modelo(data_dir: str, nome_projeto: str, classes: list[str]) -> YOLO:
-    """
-    Treina um modelo YOLOv8 de classificação.
-    Usa yolov8n-cls como ponto de partida (transfer learning).
-    """
-    print(f"\n{'=' * 60}")
-    print(f"TREINANDO MODELO: {nome_projeto}")
-    print(f"{'=' * 60}")
- 
-    model = YOLO("yolov8n-cls.pt")   # backbone leve; troque por yolov8s-cls.pt para mais acurácia
- 
-    # O Ultralytics salva em: <project>/<name>/weights/best.pt
-    # Queremos: runs/classify/<nome_projeto>/treino/weights/best.pt
+
+def treinar_modelo(data_dir: str, nome_projeto: str, classes: list) -> None:
+    _log(f"\n{'=' * 60}")
+    _log(f"TREINANDO: {nome_projeto}  ({len(classes)} classes)")
+    _log(f"{'=' * 60}")
+
+    model = YOLO("yolov8n-cls.pt")
     model.train(
-        data=data_dir,               # pasta com subpastas train/ e val/
-        epochs=EPOCHS,
-        imgsz=IMG_SIZE,
-        batch=BATCH_SIZE,
-        lr0=LEARNING_RATE,
-        project=os.path.join(RUNS_DIR, nome_projeto),
-        name="treino",
-        exist_ok=True,
-        verbose=True,
-        plots=True,                  # salva gráficos de loss/acurácia automaticamente
+        data      = data_dir,
+        epochs    = EPOCHS,
+        imgsz     = IMG_SIZE,
+        batch     = BATCH_SIZE,
+        lr0       = LEARNING_RATE,
+        project   = os.path.join(RUNS_DIR, nome_projeto),
+        name      = "treino",
+        exist_ok  = True,
+        verbose   = True,
+        plots     = True,
     )
- 
-    pesos = os.path.join(RUNS_DIR, nome_projeto, "treino", "weights", "best.pt")
-    print(f"\n✓ Modelo treinado. Pesos em: {pesos}")
-    return model
- 
- 
-# ============================================
-# FUNÇÃO 4: SALVAR INFORMAÇÕES DO MODELO
-# ============================================
- 
-def salvar_info(classes: list[str], info_path: str, nome_projeto: str) -> None:
-    """Salva metadados do modelo em JSON."""
+    _log(f"✓ Pesos salvos em: {os.path.join(RUNS_DIR, nome_projeto, 'treino', 'weights', 'best.pt')}")
+
+
+def salvar_info(classes: list, info_path: str, nome_projeto: str) -> None:
     info = {
         "classes":        classes,
         "num_classes":    len(classes),
@@ -203,318 +199,209 @@ def salvar_info(classes: list[str], info_path: str, nome_projeto: str) -> None:
     }
     with open(info_path, "w", encoding="utf-8") as f:
         json.dump(info, f, indent=4, ensure_ascii=False)
-    print(f"✓ Info salva: {info_path}")
- 
- 
+    _log(f"✓ Info salva: {info_path}")
+
+
 # ============================================
-# FUNÇÃO 5: CLASSIFICAR E PLOTAR IMAGENS
+# THREAD DE TREINAMENTO EM BACKGROUND
 # ============================================
- 
-def classificar_e_plotar(test_path: str) -> None:
+
+def _executar_treinamento():
+    training_state.update(running=True, done=False, error=None, log=[],
+                          especies=0, racas=0)
+    try:
+        # ── Espécie ──────────────────────────────────────────────────
+        train_dir_esp, _, especies = preparar_dataset_especie(TRAIN_PATH)
+        treinar_modelo(os.path.dirname(train_dir_esp), MODEL_ESPECIE_NAME, especies)
+        salvar_info(especies, INFO_ESPECIE_PATH, MODEL_ESPECIE_NAME)
+
+        # ── Raça ─────────────────────────────────────────────────────
+        train_dir_raca, _, racas = preparar_dataset_raca(TRAIN_PATH)
+        treinar_modelo(os.path.dirname(train_dir_raca), MODEL_RACA_NAME, racas)
+        salvar_info(racas, INFO_RACA_PATH, MODEL_RACA_NAME)
+
+        training_state["especies"] = len(especies)
+        training_state["racas"]    = len(racas)
+        _log("\n" + "=" * 60)
+        _log("✅  MODELOS TREINADOS COM SUCESSO!")
+        _log(f"   • Espécies : {len(especies)}")
+        _log(f"   • Raças    : {len(racas)}")
+        _log(f"   • Épocas   : {EPOCHS}")
+        _log("=" * 60)
+
+    except Exception as exc:
+        import traceback
+        training_state["error"] = str(exc)
+        _log(f"❌  Erro: {exc}")
+        _log(traceback.format_exc())
+    finally:
+        training_state["running"] = False
+        training_state["done"]    = True
+
+
+# ============================================
+# CLASSIFICAÇÃO POR UPLOAD
+# ============================================
+
+def classificar_upload(file_storage):
     """
-    Classifica todas as imagens em test_path usando os dois modelos YOLO
-    e plota cada imagem com os resultados de espécie e raça sobrepostos.
+    Recebe um FileStorage do Flask, classifica com os dois modelos YOLO
+    e retorna um dicionário com espécie, raça, top-5 e gráfico em base64.
     """
-    print("\n" + "=" * 60)
-    print("CLASSIFICANDO TODAS AS IMAGENS DA PASTA TEST")
-    print("=" * 60)
- 
-    # --- Verificar modelos e info ---
-    # MODEL_ESPECIE_PATH e MODEL_RACA_PATH já apontam para o best.pt diretamente
-    for p in [MODEL_ESPECIE_PATH, MODEL_RACA_PATH, INFO_ESPECIE_PATH, INFO_RACA_PATH]:
-        if not os.path.exists(p):
-            print(f"❌ Arquivo não encontrado: {p}")
-            print("   Treine os modelos primeiro (opção 1).")
-            return
- 
-    if not os.path.exists(test_path):
-        print(f"❌ Pasta de teste não encontrada: {test_path}")
-        return
- 
-    # --- Carregar modelos e metadados ---
-    print("\nCarregando modelos...")
-    model_especie  = YOLO(MODEL_ESPECIE_PATH)
-    model_raca     = YOLO(MODEL_RACA_PATH)
-    # Modelo de detecção geral (baixa ~6 MB automaticamente na 1ª execução)
-    model_deteccao = YOLO("yolov8n.pt")
- 
-    with open(INFO_ESPECIE_PATH, "r", encoding="utf-8") as f:
-        info_especie = json.load(f)
-    with open(INFO_RACA_PATH, "r", encoding="utf-8") as f:
-        info_raca = json.load(f)
- 
-    # --- Coletar imagens ---
-    imagens = _coletar_imagens_test(test_path)
- 
-    if not imagens:
-        print("\n❌ Nenhuma imagem encontrada na pasta test!")
-        print("   Estrutura esperada: dataset/test/especie/raca/imagem.jpg")
-        print("   Ou simplesmente:    dataset/test/imagem.jpg")
-        return
- 
-    print(f"\n✓ {len(imagens)} imagem(ns) encontrada(s)")
- 
-    # --- Classificar e plotar cada imagem ---
-    resultados = []
- 
-    for idx, img_info in enumerate(imagens, start=1):
-        caminho = img_info["caminho"]
-        print(f"\n[{idx}/{len(imagens)}] {img_info['nome']}")
- 
-        # Predições
-        res_esp  = model_especie.predict(caminho, imgsz=IMG_SIZE, verbose=False)[0]
-        res_raca = model_raca.predict(caminho,    imgsz=IMG_SIZE, verbose=False)[0]
- 
-        # Índice e confiança da classe vencedora
-        esp_idx   = int(res_esp.probs.top1)
-        raca_idx  = int(res_raca.probs.top1)
+    # Verificar modelos
+    ausentes = [p for p in [MODEL_ESPECIE_PATH, MODEL_RACA_PATH,
+                             INFO_ESPECIE_PATH,  INFO_RACA_PATH]
+                if not os.path.exists(p)]
+    if ausentes:
+        return {"success": False,
+                "error": "Modelos não encontrados. Treine primeiro! "
+                         f"(faltando: {', '.join(ausentes)})"}
+
+    suffix = Path(file_storage.filename).suffix or ".jpg"
+    tmp    = tempfile.NamedTemporaryFile(suffix=suffix, delete=False)
+    file_storage.save(tmp.name)
+    tmp_path = tmp.name
+    tmp.close()
+
+    try:
+        model_esp = YOLO(MODEL_ESPECIE_PATH)
+        model_rac = YOLO(MODEL_RACA_PATH)
+        model_det = YOLO("yolov8n.pt")         # detecção geral (bounding box)
+
+        with open(INFO_ESPECIE_PATH, encoding="utf-8") as f:
+            info_esp = json.load(f)
+        with open(INFO_RACA_PATH, encoding="utf-8") as f:
+            info_rac = json.load(f)
+
+        res_esp = model_esp.predict(tmp_path, imgsz=IMG_SIZE, verbose=False)[0]
+        res_rac = model_rac.predict(tmp_path, imgsz=IMG_SIZE, verbose=False)[0]
+        res_det = model_det.predict(tmp_path, imgsz=640,      verbose=False)[0]
+
+        esp_nome  = info_esp["classes"][int(res_esp.probs.top1)]
+        rac_nome  = info_rac["classes"][int(res_rac.probs.top1)]
         conf_esp  = float(res_esp.probs.top1conf)
-        conf_raca = float(res_raca.probs.top1conf)
- 
-        esp_nome  = info_especie["classes"][esp_idx]
-        raca_nome = info_raca["classes"][raca_idx]
- 
-        print(f"   Espécie : {esp_nome} ({conf_esp*100:.1f}%)")
-        print(f"   Raça    : {raca_nome} ({conf_raca*100:.1f}%)")
- 
-        # Detecção com bounding box (yolov8n geral)
-        res_det = model_deteccao.predict(caminho, imgsz=640, verbose=False)[0]
- 
-        # Plot da imagem com resultados
-        _plotar_resultado(
-            caminho=caminho,
-            esp_nome=esp_nome,
-            conf_esp=conf_esp,
-            raca_nome=raca_nome,
-            conf_raca=conf_raca,
-            res_esp=res_esp,
-            res_raca=res_raca,
-            res_det=res_det,
-            info_especie=info_especie,
-            info_raca=info_raca,
-            idx=idx,
-            total=len(imagens),
-        )
- 
-        resultados.append({
-            "imagem":           img_info["nome"],
-            "caminho":          caminho,
-            "especie_predita":  esp_nome,
-            "raca_predita":     raca_nome,
-            "confianca_especie":conf_esp,
-            "confianca_raca":   conf_raca,
-        })
- 
-    # --- Resumo e relatório ---
-    print("\n" + "=" * 60)
-    print(f"✓ {len(resultados)} imagem(ns) classificada(s) com sucesso!")
- 
-    relatorio = "resultados_classificacao.json"
-    with open(relatorio, "w", encoding="utf-8") as f:
-        json.dump(resultados, f, indent=4, ensure_ascii=False)
-    print(f"✓ Relatório salvo em: {relatorio}")
-    print("=" * 60)
- 
- 
+        conf_rac  = float(res_rac.probs.top1conf)
+
+        # Gerar gráfico matplotlib → base64
+        fig = _gerar_grafico(tmp_path, esp_nome, conf_esp, rac_nome, conf_rac,
+                             res_esp, res_rac, res_det, info_esp, info_rac)
+        buf = io.BytesIO()
+        fig.savefig(buf, format="png", dpi=110, bbox_inches="tight",
+                    facecolor=fig.get_facecolor())
+        plt.close(fig)
+        buf.seek(0)
+        img_b64 = base64.b64encode(buf.read()).decode("utf-8")
+
+        return {
+            "success":           True,
+            "especie":           esp_nome,
+            "raca":              rac_nome,
+            "confianca_especie": round(conf_esp * 100, 1),
+            "confianca_raca":    round(conf_rac * 100, 1),
+            "grafico":           img_b64,
+            "top5_especies": [
+                {"nome": info_esp["classes"][i], "conf": round(float(c) * 100, 1)}
+                for i, c in zip(res_esp.probs.top5, res_esp.probs.top5conf.tolist())
+            ],
+            "top5_racas": [
+                {"nome": info_rac["classes"][i], "conf": round(float(c) * 100, 1)}
+                for i, c in zip(res_rac.probs.top5, res_rac.probs.top5conf.tolist())
+            ],
+        }
+
+    finally:
+        os.unlink(tmp_path)
+
+
 # ============================================
-# FUNÇÃO 6: PLOTAR RESULTADO DE UMA IMAGEM
+# PLOTAGEM (matplotlib) — usada no upload
 # ============================================
- 
-def _plotar_resultado(
-    caminho, esp_nome, conf_esp, raca_nome, conf_raca,
-    res_esp, res_raca, res_det, info_especie, info_raca, idx, total
-):
-    """
-    Gera um plot com 3 painéis:
-      - Esquerda : imagem com bounding box do animal detectado
-      - Centro   : top-5 espécies (barras horizontais)
-      - Direita  : top-5 raças   (barras horizontais)
-    """
-    import matplotlib.patches as patches
+
+def _gerar_grafico(caminho, esp_nome, conf_esp, rac_nome, conf_rac,
+                   res_esp, res_rac, res_det, info_esp, info_rac):
     img = np.array(Image.open(caminho).convert("RGB"))
-    h_img, w_img = img.shape[:2]
- 
-    # Top-5 espécies
-    top5_esp_idx  = res_esp.probs.top5
+
+    top5_esp_nome = [info_esp["classes"][i] for i in res_esp.probs.top5]
     top5_esp_conf = res_esp.probs.top5conf.tolist()
-    top5_esp_nome = [info_especie["classes"][i] for i in top5_esp_idx]
- 
-    # Top-5 raças
-    top5_raca_idx  = res_raca.probs.top5
-    top5_raca_conf = res_raca.probs.top5conf.tolist()
-    top5_raca_nome = [info_raca["classes"][i] for i in top5_raca_idx]
- 
+    top5_rac_nome = [info_rac["classes"][i] for i in res_rac.probs.top5]
+    top5_rac_conf = res_rac.probs.top5conf.tolist()
+
     fig, axes = plt.subplots(1, 3, figsize=(18, 6))
     fig.patch.set_facecolor("#1a1a2e")
- 
-    # ---- Painel 1: imagem com bounding box ----
+
+    # ── Painel 1: imagem + bounding box ──
     axes[0].imshow(img)
     axes[0].axis("off")
-    axes[0].set_title(
-        f"Imagem {idx}/{total} — {os.path.basename(caminho)}",
-        color="white", fontsize=9, pad=8
-    )
- 
-    # Desenhar bounding boxes retornados pelo modelo de detecção
-    bbox_desenhado = False
+    axes[0].set_title(os.path.basename(caminho), color="white", fontsize=9, pad=8)
+
+    bbox_ok = False
     if res_det.boxes is not None and len(res_det.boxes) > 0:
-        # Filtrar apenas animais (COCO: cat=15, dog=16) se existirem; senão usar todos
         ANIMAL_IDS = {15, 16}
-        boxes_animais = [b for b in res_det.boxes if int(b.cls) in ANIMAL_IDS]
-        boxes_usar = boxes_animais if boxes_animais else list(res_det.boxes)
- 
-        for box in boxes_usar:
+        boxes = [b for b in res_det.boxes if int(b.cls) in ANIMAL_IDS] or list(res_det.boxes)
+        for box in boxes:
             x1, y1, x2, y2 = box.xyxy[0].tolist()
-            conf_box = float(box.conf[0])
-            cls_id   = int(box.cls[0])
-            label    = f"{res_det.names[cls_id]}: {conf_box:.3f}"
- 
-            rect = patches.FancyBboxPatch(
+            label = f"{res_det.names[int(box.cls[0])]}: {float(box.conf[0]):.2f}"
+            rect  = patches.FancyBboxPatch(
                 (x1, y1), x2 - x1, y2 - y1,
                 linewidth=3, edgecolor="#00ff88", facecolor="none",
                 boxstyle="round,pad=2"
             )
             axes[0].add_patch(rect)
- 
-            # Fundo do label
-            axes[0].text(
-                x1, y1 - 8, label,
-                color="black", fontsize=9, fontweight="bold",
-                bbox=dict(facecolor="#00ff88", edgecolor="none", pad=3, alpha=0.9)
-            )
-            bbox_desenhado = True
- 
-    if not bbox_desenhado:
-        # Sem detecção: só mostrar aviso discreto
-        axes[0].text(
-            0.5, 0.02, "⚠ sem detecção de bounding box",
-            transform=axes[0].transAxes, ha="center", va="bottom",
-            color="#ffaa00", fontsize=8
-        )
- 
-    # Label de resultado abaixo da imagem
-    axes[0].text(
-        0.5, -0.04,
-        f"🐾  {esp_nome}  •  {raca_nome}",
-        transform=axes[0].transAxes,
-        ha="center", va="top", fontsize=12, color="#00d4ff", fontweight="bold"
-    )
- 
-    # ---- Painel 2: top-5 espécies ----
-    _barras_horizontais(
-        ax=axes[1],
-        nomes=top5_esp_nome,
-        confs=top5_esp_conf,
-        titulo="Top-5 Espécies",
-        cor_destaque="#00d4ff",
-        cor_resto="#2a6090",
-    )
- 
-    # ---- Painel 3: top-5 raças ----
-    _barras_horizontais(
-        ax=axes[2],
-        nomes=top5_raca_nome,
-        confs=top5_raca_conf,
-        titulo="Top-5 Raças",
-        cor_destaque="#ff6b6b",
-        cor_resto="#7a3030",
-    )
- 
+            axes[0].text(x1, y1 - 8, label, color="black", fontsize=9,
+                         fontweight="bold",
+                         bbox=dict(facecolor="#00ff88", edgecolor="none", pad=3, alpha=0.9))
+            bbox_ok = True
+
+    if not bbox_ok:
+        axes[0].text(0.5, 0.02, "⚠ sem bbox detectado",
+                     transform=axes[0].transAxes, ha="center",
+                     color="#ffaa00", fontsize=8)
+
+    axes[0].text(0.5, -0.04, f"🐾  {esp_nome}  •  {rac_nome}",
+                 transform=axes[0].transAxes, ha="center", va="top",
+                 fontsize=12, color="#00d4ff", fontweight="bold")
+
+    _barras(axes[1], top5_esp_nome, top5_esp_conf, "Top-5 Espécies", "#ff85a1", "#7a3050")
+    _barras(axes[2], top5_rac_nome, top5_rac_conf, "Top-5 Raças",    "#ffb6c1", "#7a4058")
+
     plt.tight_layout(pad=2.5)
- 
-    # Salvar e exibir
-    nome_saida = f"resultado_{idx:03d}_{os.path.splitext(os.path.basename(caminho))[0]}.png"
-    plt.savefig(nome_saida, dpi=130, bbox_inches="tight", facecolor=fig.get_facecolor())
-    print(f"   📊 Plot salvo: {nome_saida}")
-    plt.show()
-    plt.close(fig)
- 
- 
-def _barras_horizontais(ax, nomes, confs, titulo, cor_destaque, cor_resto):
-    """
-    Barras horizontais com nome à esquerda (fora da barra)
-    e percentual à direita — sem sobreposição.
-    """
+    return fig
+
+
+def _barras(ax, nomes, confs, titulo, cor_destaque, cor_resto):
     ax.set_facecolor("#16213e")
-    n = len(nomes)
-    # y: 4 no topo, 0 na base  →  maior confiança no topo
+    n     = len(nomes)
     y_pos = list(range(n - 1, -1, -1))
- 
     cores = [cor_destaque if i == 0 else cor_resto for i in range(n)]
-    bar_height = 0.55
- 
-    bars = ax.barh(y_pos, confs, color=cores, height=bar_height,
-                   edgecolor="none", left=0)
- 
-    for bar, nome, conf, y in zip(bars, nomes, confs, y_pos):
-        # Percentual: sempre à direita da barra, fora dela
-        ax.text(
-            conf + 0.02,
-            y,
-            f"{conf * 100:.1f}%",
-            va="center", ha="left",
-            color="white", fontsize=9, fontweight="bold"
-        )
-        # Nome: dentro da barra se couber (conf > 25%), senão à direita do %
+    bars  = ax.barh(y_pos, confs, color=cores, height=0.55, edgecolor="none")
+
+    for _, nome, conf, y in zip(bars, nomes, confs, y_pos):
+        ax.text(conf + 0.02, y, f"{conf * 100:.1f}%",
+                va="center", ha="left", color="white", fontsize=9, fontweight="bold")
         if conf > 0.25:
-            ax.text(
-                0.015, y,
-                nome,
-                va="center", ha="left",
-                color="white", fontsize=8.5, fontweight="bold",
-                clip_on=True
-            )
+            ax.text(0.015, y, nome, va="center", ha="left",
+                    color="white", fontsize=8.5, fontweight="bold", clip_on=True)
         else:
-            ax.text(
-                conf + 0.09, y,
-                nome,
-                va="center", ha="left",
-                color="#aaaaaa", fontsize=8,
-                clip_on=False
-            )
- 
-    ax.set_xlim(0, 1.30)          # espaço extra à direita para os rótulos
+            ax.text(conf + 0.09, y, nome, va="center", ha="left",
+                    color="#aaaaaa", fontsize=8, clip_on=False)
+
+    ax.set_xlim(0, 1.30)
     ax.set_ylim(-0.6, n - 0.4)
     ax.set_yticks([])
     ax.set_xticks([0, 0.25, 0.5, 0.75, 1.0])
-    ax.set_xticklabels(["0%", "25%", "50%", "75%", "100%"],
-                       color="#888888", fontsize=8)
+    ax.set_xticklabels(["0%", "25%", "50%", "75%", "100%"], color="#888888", fontsize=8)
     ax.tick_params(axis="x", colors="#555577", length=3)
     ax.tick_params(axis="y", left=False)
     for spine in ax.spines.values():
         spine.set_color("#2a2a4a")
     ax.set_title(titulo, color="white", fontsize=11, pad=10, fontweight="bold")
- 
- 
+
+
 # ============================================
-# FUNÇÃO 7: VISUALIZAR MÉTRICAS DO TREINAMENTO
+# AUXILIARES
 # ============================================
- 
-def visualizar_treinamento() -> None:
-    """
-    Exibe os gráficos de loss/acurácia gerados automaticamente pelo Ultralytics
-    (results.png) para ambos os modelos.
-    """
-    for nome, projeto in [("Espécie", MODEL_ESPECIE_NAME), ("Raça", MODEL_RACA_NAME)]:
-        results_img = os.path.join(RUNS_DIR, projeto, "treino", "results.png")
-        if os.path.exists(results_img):
-            img = Image.open(results_img)
-            plt.figure(figsize=(14, 6))
-            plt.imshow(img)
-            plt.axis("off")
-            plt.title(f"Métricas de Treinamento — {nome}", fontsize=14)
-            plt.tight_layout()
-            plt.show()
-        else:
-            print(f"⚠️  Gráfico não encontrado para {nome}: {results_img}")
- 
- 
-# ============================================
-# AUXILIARES INTERNOS
-# ============================================
- 
-def _coletar_imagens(pasta: str, recursivo: bool) -> list[str]:
-    """Retorna lista de caminhos de imagens em uma pasta."""
+
+def _coletar_imagens(pasta: str, recursivo: bool) -> list:
     exts = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
     imgs = []
     if recursivo:
@@ -527,117 +414,68 @@ def _coletar_imagens(pasta: str, recursivo: bool) -> list[str]:
             if Path(f).suffix.lower() in exts:
                 imgs.append(os.path.join(pasta, f))
     return sorted(imgs)
- 
- 
-def _coletar_imagens_test(test_path: str) -> list[dict]:
-    """
-    Coleta imagens da pasta test.
-    Suporta:
-      - dataset/test/especie/raca/img.jpg
-      - dataset/test/img.jpg
-    """
-    imagens = []
-    tem_subpastas = any(
-        os.path.isdir(os.path.join(test_path, item))
-        for item in os.listdir(test_path)
-    )
- 
-    if tem_subpastas:
-        for especie in os.listdir(test_path):
-            ep = os.path.join(test_path, especie)
-            if not os.path.isdir(ep):
-                continue
-            for raca in os.listdir(ep):
-                rp = os.path.join(ep, raca)
-                if not os.path.isdir(rp):
-                    continue
-                for img in _coletar_imagens(rp, recursivo=False):
-                    imagens.append({
-                        "caminho":           img,
-                        "especie_verdadeira": especie,
-                        "raca_verdadeira":    raca,
-                        "nome":              os.path.basename(img),
-                    })
-    else:
-        for img in _coletar_imagens(test_path, recursivo=False):
-            nome_sem_ext = Path(img).stem
-            partes = nome_sem_ext.rsplit("_", 1)
-            raca = partes[0] if len(partes) > 1 else nome_sem_ext
-            imagens.append({
-                "caminho":           img,
-                "especie_verdadeira": "desconhecido",
-                "raca_verdadeira":    raca,
-                "nome":              os.path.basename(img),
-            })
- 
-    return imagens
- 
- 
+
+
+def _modelos_prontos() -> bool:
+    return all(os.path.exists(p) for p in [MODEL_ESPECIE_PATH, MODEL_RACA_PATH])
+
+
 # ============================================
-# FUNÇÃO PRINCIPAL
+# ROTAS FLASK
 # ============================================
- 
-def main():
-    print("\n" + "=" * 60)
-    print("  CLASSIFICADOR HIERÁRQUICO — YOLOv8")
-    print("=" * 60)
- 
-    while True:
-        print("\n" + "=" * 60)
-        print("MENU PRINCIPAL")
-        print("=" * 60)
-        print("1 - Treinar modelos")
-        print("2 - Testar e plotar TODAS as imagens da pasta TEST")
-        print("3 - Ver métricas do último treinamento")
-        print("4 - Sair")
- 
-        opcao = input("\nEscolha (1-4): ").strip()
- 
-        if opcao == "1":
-            try:
-                # --- Espécie ---
-                train_dir_esp, _, especies = preparar_dataset_especie(TRAIN_PATH)
-                model_esp = treinar_modelo(
-                    data_dir=os.path.dirname(train_dir_esp),   # pasta pai com train/ e val/
-                    nome_projeto=MODEL_ESPECIE_NAME,
-                    classes=especies,
-                )
-                salvar_info(especies, INFO_ESPECIE_PATH, MODEL_ESPECIE_NAME)
- 
-                # --- Raça ---
-                train_dir_raca, _, racas = preparar_dataset_raca(TRAIN_PATH)
-                model_raca = treinar_modelo(
-                    data_dir=os.path.dirname(train_dir_raca),
-                    nome_projeto=MODEL_RACA_NAME,
-                    classes=racas,
-                )
-                salvar_info(racas, INFO_RACA_PATH, MODEL_RACA_NAME)
- 
-                print("\n" + "=" * 60)
-                print("MODELOS TREINADOS COM SUCESSO!")
-                print(f"   • Espécies : {len(especies)}")
-                print(f"   • Raças    : {len(racas)}")
-                print(f"   • Épocas   : {EPOCHS}")
-                print("=" * 60)
- 
-            except Exception as e:
-                import traceback
-                print(f"\nErro durante treinamento: {e}")
-                traceback.print_exc()
- 
-        elif opcao == "2":
-            classificar_e_plotar(TEST_PATH)
- 
-        elif opcao == "3":
-            visualizar_treinamento()
- 
-        elif opcao == "4":
-            print("\nEncerrando. Até mais! ")
-            break
- 
-        else:
-            print("Opção inválida! Escolha entre 1 e 4.")
- 
- 
+
+@app.route("/")
+def index():
+    return render_template("index.html", modelos_prontos=_modelos_prontos())
+
+
+@app.route("/treinar", methods=["GET", "POST"])
+def treinar():
+    if request.method == "POST":
+        if training_state["running"]:
+            return jsonify({"status": "already_running"})
+        t = threading.Thread(target=_executar_treinamento, daemon=True)
+        t.start()
+        return jsonify({"status": "started"})
+    return render_template("treinar.html",
+                           epochs=EPOCHS, img_size=IMG_SIZE,
+                           batch=BATCH_SIZE, lr=LEARNING_RATE)
+
+
+@app.route("/status_treino")
+def status_treino():
+    return jsonify(training_state)
+
+
+@app.route("/testar", methods=["GET", "POST"])
+def testar():
+    if request.method == "POST":
+        if "imagem" not in request.files:
+            return jsonify({"success": False, "error": "Nenhum arquivo enviado."})
+        f = request.files["imagem"]
+        if not f or f.filename == "":
+            return jsonify({"success": False, "error": "Arquivo vazio."})
+        return jsonify(classificar_upload(f))
+    return render_template("testar.html")
+
+
+@app.route("/metricas")
+def metricas():
+    graficos = []
+    for nome, projeto in [("Espécie", MODEL_ESPECIE_NAME), ("Raça", MODEL_RACA_NAME)]:
+        p = os.path.join(RUNS_DIR, projeto, "treino", "results.png")
+        if os.path.exists(p):
+            with open(p, "rb") as f:
+                graficos.append({"nome": nome,
+                                  "imagem": base64.b64encode(f.read()).decode("utf-8")})
+    return render_template("metricas.html", graficos=graficos)
+
+
+# ============================================
+# MAIN
+# ============================================
+
 if __name__ == "__main__":
-    main()
+    print("\n🌸  PetClassifier — Interface Web")
+    print("   Acesse: http://localhost:5000\n")
+    app.run(debug=True, port=5000, threaded=True)

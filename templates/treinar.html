@@ -1,0 +1,162 @@
+{% extends "base.html" %}
+{% block title %}Treinar — PetCare{% endblock %}
+
+{% block content %}
+
+<div class="page-header">
+    <h1>🧠 Treinar Modelos</h1>
+    <p>O treinamento usa YOLOv8 com transfer learning. Pode levar vários minutos dependendo do tamanho do dataset.</p>
+</div>
+
+<div class="two-col">
+
+    <!-- ── Coluna esquerda: configurações ── -->
+    <div class="card">
+        <h2>⚙️ Configurações</h2>
+
+        <div class="config-grid">
+            <div class="config-item">
+                <span class="cfg-label">Épocas</span>
+                <span class="cfg-val">{{ epochs }}</span>
+            </div>
+            <div class="config-item">
+                <span class="cfg-label">Imagem (px)</span>
+                <span class="cfg-val">{{ img_size }}</span>
+            </div>
+            <div class="config-item">
+                <span class="cfg-label">Batch size</span>
+                <span class="cfg-val">{{ batch }}</span>
+            </div>
+            <div class="config-item">
+                <span class="cfg-label">Learning rate</span>
+                <span class="cfg-val">{{ lr }}</span>
+            </div>
+        </div>
+
+        <h2 style="margin-top:1.5rem;">🗂️ Estrutura do Dataset</h2>
+        <pre class="code-block">dataset/
+  train/
+    cachorro/
+      basset/       ← imagens .jpg / .png
+      beagle/
+      ...
+    gato/
+      bengal/
+      siamese/
+      ...
+    cobras/
+      cascavel-vermelha/
+      cobra-do-milho/
+      ...
+    coelho/
+      lionhead/
+      holland_lop/
+      ...
+  test/
+    (imagens opcionais para teste em lote)</pre>
+
+        <button id="btn-treinar" class="btn btn-primary btn-block" onclick="iniciarTreinamento()">
+            🚀 Iniciar Treinamento
+        </button>
+    </div>
+
+    <!-- ── Coluna direita: log ── -->
+    <div class="card" id="log-card">
+        <div class="log-header">
+            <h2>📋 Log de Treinamento</h2>
+            <span id="status-pill" class="pill pill-idle">⏸ Aguardando</span>
+        </div>
+        <div class="log-box" id="log-box">
+            <p class="log-placeholder">O log aparecerá aqui quando o treinamento começar...</p>
+        </div>
+        <div id="success-banner" class="success-banner" style="display:none">
+            ✅ Treinamento concluído! <a href="/metricas">Ver métricas →</a>
+        </div>
+        <div id="error-banner" class="error-banner" style="display:none"></div>
+    </div>
+
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+let polling = null;
+
+async function iniciarTreinamento() {
+    const btn = document.getElementById('btn-treinar');
+    btn.disabled = true;
+    btn.textContent = '⏳ Treinando...';
+    document.getElementById('log-box').innerHTML = '';
+    document.getElementById('success-banner').style.display = 'none';
+    document.getElementById('error-banner').style.display   = 'none';
+    setPill('running', '🔄 Treinando...');
+
+    try {
+        const resp = await fetch('/treinar', { method: 'POST' });
+        const data = await resp.json();
+        if (data.status === 'already_running') {
+            alert('Já existe um treinamento em andamento!');
+            btn.disabled = false;
+            btn.textContent = '🚀 Iniciar Treinamento';
+            return;
+        }
+        polling = setInterval(verificarStatus, 2500);
+    } catch (e) {
+        alert('Erro ao iniciar: ' + e);
+        btn.disabled = false;
+        btn.textContent = '🚀 Iniciar Treinamento';
+    }
+}
+
+async function verificarStatus() {
+    try {
+        const resp = await fetch('/status_treino');
+        const data = await resp.json();
+        const box  = document.getElementById('log-box');
+
+        box.innerHTML = data.log.map(l =>
+            `<div class="log-line ${lineClass(l)}">${esc(l)}</div>`
+        ).join('');
+        box.scrollTop = box.scrollHeight;
+
+        if (data.done) {
+            clearInterval(polling);
+            const btn = document.getElementById('btn-treinar');
+            btn.disabled = false;
+
+            if (data.error) {
+                setPill('error', '❌ Erro');
+                const eb = document.getElementById('error-banner');
+                eb.textContent = '❌ ' + data.error;
+                eb.style.display = 'block';
+                btn.textContent = '🔄 Tentar Novamente';
+            } else {
+                setPill('ok', '✅ Concluído');
+                document.getElementById('success-banner').style.display = 'block';
+                btn.textContent = '🔄 Treinar Novamente';
+            }
+        }
+    } catch (e) { console.error(e); }
+}
+
+function setPill(state, text) {
+    const el = document.getElementById('status-pill');
+    el.className = 'pill pill-' + state;
+    el.textContent = text;
+}
+
+function lineClass(l) {
+    if (l.includes('✓') || l.includes('✅')) return 'log-ok';
+    if (l.includes('❌') || l.includes('Erro')) return 'log-err';
+    if (l.includes('===') || l.includes('---')) return 'log-sep';
+    return '';
+}
+
+function esc(t) {
+    const d = document.createElement('div');
+    d.appendChild(document.createTextNode(t));
+    return d.innerHTML;
+}
+</script>
+{% endblock %}

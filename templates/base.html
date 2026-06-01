@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}🐾 PetCare{% endblock %}</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;800&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    {% block head %}{% endblock %}
+</head>
+<body>
+
+    <nav class="navbar">
+        <a href="/" class="nav-brand">
+            <span class="brand-paw">🐾</span>
+            <span class="brand-name">PetCare</span>
+        </a>
+        <div class="nav-links">
+            <a href="/"         class="nav-link {% if request.endpoint == 'index'    %}active{% endif %}">🏠 Início</a>
+            <a href="/treinar"  class="nav-link {% if request.endpoint == 'treinar'  %}active{% endif %}">🧠 Treinar</a>
+            <a href="/testar"   class="nav-link {% if request.endpoint == 'testar'   %}active{% endif %}">🔍 Testar</a>
+            <a href="/metricas" class="nav-link {% if request.endpoint == 'metricas' %}active{% endif %}">📊 Métricas</a>
+        </div>
+    </nav>
+
+    <main class="main">
+        {% block content %}{% endblock %}
+    </main>
+
+    <footer class="footer">
+        <p>🌸 PetCare &mdash; Classificador Hierárquico com YOLOv8 &mdash; Cachorro · Gato · Cobra · Coelho</p>
+    </footer>
+
+    {% block scripts %}{% endblock %}
+</body>
+</html>

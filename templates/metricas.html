@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}Métricas — PetCare{% endblock %}
+
+{% block content %}
+
+<div class="page-header">
+    <h1>📊 Métricas de Treinamento</h1>
+    <p>Gráficos de loss e acurácia gerados automaticamente pelo YOLOv8 após o treinamento.</p>
+</div>
+
+{% if graficos %}
+    {% for g in graficos %}
+    <div class="card metrics-card">
+        <h2>📈 Modelo de {{ g.nome }}</h2>
+        <img src="data:image/png;base64,{{ g.imagem }}" alt="Métricas {{ g.nome }}" class="metrics-img">
+    </div>
+    {% endfor %}
+{% else %}
+<div class="card empty-state">
+    <div class="es-icon">📉</div>
+    <h3>Nenhuma métrica disponível</h3>
+    <p>Treine os modelos primeiro para ver os gráficos de desempenho.</p>
+    <a href="/treinar" class="btn btn-primary">🧠 Ir para Treinar</a>
+</div>
+{% endif %}
+
+{% endblock %}

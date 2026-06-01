@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% block title %}Início — PetCare 🐾{% endblock %}
+
+{% block content %}
+
+<section class="hero">
+    <div class="hero-blob"></div>
+    <div class="hero-inner">
+        <h1 class="hero-title">Identifique seu<br><em>animal favorito</em> 🌸</h1>
+        <p class="hero-sub">
+            Inteligência artificial que reconhece a <strong>espécie</strong> e a <strong>raça</strong> de
+            cachorros, gatos, cobras e coelhos — basta enviar uma foto.
+        </p>
+
+        {% if modelos_prontos %}
+        <div class="badge badge-ok"> Modelos treinados e prontos para uso</div>
+        {% else %}
+        <div class="badge badge-warn"> Modelos ainda não treinados — vá em <a href="/treinar">Treinar</a></div>
+        {% endif %}
+    </div>
+</section>
+
+<section class="actions">
+    <a href="/treinar" class="action-card">
+        <div class="ac-icon">🧠</div>
+        <div class="ac-body">
+            <h3>Treinar</h3>
+            <p>Treine os modelos de IA com seu dataset de imagens. Progresso em tempo real.</p>
+        </div>
+        <span class="ac-arrow">→</span>
+    </a>
+
+    <a href="/testar" class="action-card ac-main">
+        <div class="ac-icon">🔍</div>
+        <div class="ac-body">
+            <h3>Testar agora</h3>
+            <p>Envie uma foto e descubra a espécie e raça em segundos.</p>
+        </div>
+        <span class="ac-arrow">→</span>
+    </a>
+
+    <a href="/metricas" class="action-card">
+        <div class="ac-icon">📊</div>
+        <div class="ac-body">
+            <h3>Métricas</h3>
+            <p>Veja os gráficos de acurácia e loss gerados pelo treinamento.</p>
+        </div>
+        <span class="ac-arrow">→</span>
+    </a>
+</section>
+
+<section class="species-section">
+    <h2 class="section-title">Animais suportados</h2>
+    <div class="species-row">
+        <div class="species-tile">
+            <span class="sp-emoji">🐕</span>
+            <strong>Cachorros</strong>
+            <span class="sp-count">25 raças</span>
+        </div>
+        <div class="species-tile">
+            <span class="sp-emoji">🐈</span>
+            <strong>Gatos</strong>
+            <span class="sp-count">12 raças</span>
+        </div>
+        <div class="species-tile">
+            <span class="sp-emoji">🐍</span>
+            <strong>Cobras</strong>
+            <span class="sp-count">35 espécies</span>
+        </div>
+        <div class="species-tile">
+            <span class="sp-emoji">🐇</span>
+            <strong>Coelhos</strong>
+            <span class="sp-count">5 raças</span>
+        </div>
+    </div>
+</section>
+
+{% endblock %}

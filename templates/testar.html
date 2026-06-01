@@ -1,0 +1,163 @@
+{% extends "base.html" %}
+{% block title %}Testar — PetCare{% endblock %}
+
+{% block content %}
+
+<div class="page-header">
+    <h1>🔍 Testar Classificação</h1>
+    <p>Envie a foto de um animal para identificar a espécie e a raça automaticamente.</p>
+</div>
+
+<div class="test-layout">
+
+    <!-- ── Upload ── -->
+    <div class="card upload-card">
+
+        <!-- Zona de drop -->
+        <div class="drop-zone" id="drop-zone"
+             onclick="document.getElementById('file-inp').click()"
+             ondrop="handleDrop(event)"
+             ondragover="event.preventDefault(); this.classList.add('dz-over')"
+             ondragleave="this.classList.remove('dz-over')">
+            <div class="dz-icon">📷</div>
+            <p class="dz-title">Clique ou arraste sua imagem aqui</p>
+            <p class="dz-hint">JPG · PNG · BMP · WEBP</p>
+            <input type="file" id="file-inp" accept="image/*" style="display:none"
+                   onchange="handleFile(this.files[0])">
+        </div>
+
+        <!-- Preview da imagem -->
+        <div id="preview-wrap" style="display:none;" class="preview-wrap">
+            <img id="preview-img" class="preview-img" alt="Preview">
+            <button class="btn btn-ghost" onclick="limpar()">🗑️ Remover foto</button>
+        </div>
+
+        <button id="btn-class" class="btn btn-primary btn-block" onclick="classificar()" disabled>
+            🔍 Classificar Animal
+        </button>
+    </div>
+
+    <!-- ── Resultado ── -->
+    <div class="card result-card" id="result-card" style="display:none;">
+        <h2>🌸 Resultado</h2>
+        <div id="result-body"></div>
+    </div>
+
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+let selectedFile = null;
+
+function handleDrop(e) {
+    e.preventDefault();
+    document.getElementById('drop-zone').classList.remove('dz-over');
+    if (e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]);
+}
+
+function handleFile(file) {
+    if (!file) return;
+    selectedFile = file;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+        document.getElementById('preview-img').src    = ev.target.result;
+        document.getElementById('preview-wrap').style.display = 'block';
+        document.getElementById('drop-zone').style.display    = 'none';
+        document.getElementById('btn-class').disabled         = false;
+        document.getElementById('result-card').style.display  = 'none';
+    };
+    reader.readAsDataURL(file);
+}
+
+function limpar() {
+    selectedFile = null;
+    document.getElementById('preview-img').src            = '';
+    document.getElementById('preview-wrap').style.display = 'none';
+    document.getElementById('drop-zone').style.display    = 'flex';
+    document.getElementById('btn-class').disabled         = true;
+    document.getElementById('result-card').style.display  = 'none';
+    document.getElementById('file-inp').value             = '';
+}
+
+async function classificar() {
+    if (!selectedFile) return;
+    const btn = document.getElementById('btn-class');
+    btn.disabled    = true;
+    btn.textContent = '⏳ Analisando...';
+
+    const fd = new FormData();
+    fd.append('imagem', selectedFile);
+
+    try {
+        const resp = await fetch('/testar', { method: 'POST', body: fd });
+        const data = await resp.json();
+        renderResultado(data);
+        document.getElementById('result-card').style.display = 'block';
+        document.getElementById('result-card').scrollIntoView({ behavior: 'smooth' });
+    } catch (e) {
+        alert('Erro na classificação: ' + e);
+    } finally {
+        btn.disabled    = false;
+        btn.textContent = '🔍 Classificar Animal';
+    }
+}
+
+function renderResultado(data) {
+    const el = document.getElementById('result-body');
+    if (!data.success) {
+        el.innerHTML = `<div class="error-box">❌ ${esc(data.error)}</div>`;
+        return;
+    }
+
+    const top5Html = (lista, cor) => lista.map((x, i) => `
+        <div class="bar-row">
+            <span class="bar-rank">${i + 1}.</span>
+            <span class="bar-name">${esc(x.nome)}</span>
+            <div class="bar-track">
+                <div class="bar-fill ${i === 0 ? 'bar-top' : ''}" style="width:${x.conf}%;--c:${cor}"></div>
+            </div>
+            <span class="bar-pct">${x.conf}%</span>
+        </div>
+    `).join('');
+
+    el.innerHTML = `
+        <div class="result-pills">
+            <div class="rpill rpill-species">
+                <span class="rpill-label">Espécie</span>
+                <span class="rpill-value">${esc(data.especie)}</span>
+                <span class="rpill-conf">${data.confianca_especie}% de confiança</span>
+            </div>
+            <div class="rpill rpill-breed">
+                <span class="rpill-label">Raça / Tipo</span>
+                <span class="rpill-value">${esc(data.raca)}</span>
+                <span class="rpill-conf">${data.confianca_raca}% de confiança</span>
+            </div>
+        </div>
+
+        <div class="top5-grid">
+            <div class="top5-col">
+                <h4>🏅 Top 5 Espécies</h4>
+                ${top5Html(data.top5_especies, 'var(--pink-deep)')}
+            </div>
+            <div class="top5-col">
+                <h4>🏅 Top 5 Raças</h4>
+                ${top5Html(data.top5_racas, 'var(--green-acc)')}
+            </div>
+        </div>
+
+        <div class="graph-wrap">
+            <h4>📈 Gráfico Completo</h4>
+            <img src="data:image/png;base64,${data.grafico}" alt="Gráfico de resultado" class="result-graph">
+        </div>
+    `;
+}
+
+function esc(t) {
+    const d = document.createElement('div');
+    d.appendChild(document.createTextNode(String(t)));
+    return d.innerHTML;
+}
+</script>
+{% endblock %}
