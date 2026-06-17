@@ -1,0 +1,14 @@
+{
+    "classes": [
+        "Californian",
+        "Netherland Dwarf",
+        "New Zeland",
+        "holland lop",
+        "lionhead"
+    ],
+    "num_classes": 5,
+    "data": "2026-06-07 16:45:25",
+    "tamanho_imagem": 224,
+    "epocas": 10,
+    "modelo_path": "c:\\Users\\DELL\\Documents\\GitHub\\PetCare-IA\\runs\\classify\\modelo_raca_coelho_yolo\\treino\\weights\\best.pt"
+}

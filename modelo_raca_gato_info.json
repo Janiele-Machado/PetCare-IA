@@ -1,0 +1,21 @@
+{
+    "classes": [
+        "Abyssinian",
+        "British_Shorthair",
+        "Egyptian_Mau",
+        "Maine_Coon",
+        "Persian",
+        "Ragdoll",
+        "Russian_Blue",
+        "Siamese",
+        "Sphynx",
+        "bengal",
+        "birman",
+        "bombay"
+    ],
+    "num_classes": 12,
+    "data": "2026-06-07 13:12:15",
+    "tamanho_imagem": 224,
+    "epocas": 10,
+    "modelo_path": "c:\\Users\\DELL\\Documents\\GitHub\\PetCare-IA\\runs\\classify\\modelo_raca_gato_yolo\\treino\\weights\\best.pt"
+}

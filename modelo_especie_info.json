@@ -6,8 +6,8 @@
         "gato"
     ],
     "num_classes": 4,
-    "data": "2026-05-29 06:03:22",
+    "data": "2026-06-07 11:38:38",
     "tamanho_imagem": 224,
-    "epocas": 30,
-    "modelo_path": "runs/classify\\modelo_especie_yolo\\treino\\weights\\best.pt"
+    "epocas": 10,
+    "modelo_path": "c:\\Users\\DELL\\Documents\\GitHub\\PetCare-IA\\runs\\classify\\modelo_especie_yolo\\treino\\weights\\best.pt"
 }
